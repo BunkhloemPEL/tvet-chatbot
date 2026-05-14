@@ -1,0 +1,26 @@
+# Environment variables (keep secrets safe!)
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node / React
+node_modules/
+dist/
+build/
+.next/
+
+# Vector DB / local data
+*.db
+*.sqlite
+chroma_db/
+faiss_index/
+
+# OS
+.DS_Store
+Thumbs.db
