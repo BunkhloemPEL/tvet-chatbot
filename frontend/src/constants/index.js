@@ -1,0 +1,9 @@
+export const API_URL = "http://localhost:8000/chat";
+export const SESSION_ID = "tvet-user-001";
+
+export const SUGGESTED_QUESTIONS = [
+    "តើមានកម្មវិធី TVET អ្វីខ្លះនៅភ្នំពេញ?",
+    "តើការចូលរៀនតម្រូវអ្វីខ្លះ?",
+    "តើថ្លៃសិក្សាប៉ុន្មាន?",
+    "តើរយៈពេលសិក្សាយូរប៉ុណ្ណា?",
+];

@@ -89,3 +89,25 @@ in `main.py` we create the fast api class to expose the endpoint
 ine the `/router/` we write all the endpoint logic there e.g `/chat`, `/auth/login` . . . .
 
 8.1 We can do RAG evaluation here with our endpoint up running but the testing phase will be an ongoing phase until the end anyway.
+
+9. Frontend Folder Structure.
+
+```
+src/
+├── components/
+│   ├── Message.jsx          # Single chat bubble
+│   ├── TypingDots.jsx       # The animated dots
+│   ├── SuggestedQuestions.jsx  # The clickable suggestion chips
+│   └── ChatInput.jsx        # The textarea + send button
+│
+├── hooks/
+│   └── useChat.js           # All the state logic (messages, loading, sendMessage)
+│
+├── constants/
+│   └── index.js             # API_URL, SESSION_ID, SUGGESTED_QUESTIONS
+│
+├── styles/
+│   └── global.css           # The big <style> block (animations, scrollbar, etc.)
+│
+└── App.jsx                  # Just the layout shell — thin and clean
+```
