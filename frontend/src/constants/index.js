@@ -1,4 +1,4 @@
-export const API_URL = "http://localhost:8000/chat";
+export const API_URL = "http://localhost:8000/chat/no-stream";
 export const SESSION_ID = "tvet-user-001";
 
 export const SUGGESTED_QUESTIONS = [

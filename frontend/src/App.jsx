@@ -18,7 +18,7 @@ import ChatInput from "./components/ChatInput";
  *   3. Managing the auto-scroll ref
  */
 export default function App() {
-  const { messages, input, isLoading, isStreaming, setInput, sendMessage } =
+  const { messages, input, isLoading,  setInput, sendMessage } =
     useChat();
 
   const bottomRef = useRef(null);
@@ -172,9 +172,6 @@ export default function App() {
             key={i}
             role={msg.role}
             content={msg.content}
-            isStreaming={
-              isStreaming && i === messages.length - 1 && msg.role === "assistant"
-            }
           />
         ))}
 

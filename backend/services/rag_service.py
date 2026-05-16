@@ -5,6 +5,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.runnables import RunnableLambda
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone
+
 from langchain_core.prompts import (
     ChatPromptTemplate,
     SystemMessagePromptTemplate,
@@ -41,13 +44,10 @@ Answering rules:
 
 
 def load_vectorstore():
+    pc = Pinecone(api_key=settings.pinecone_api_key)
+    index = pc.Index(settings.pinecone_index)
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-    vectorstore = Chroma(
-        persist_directory=CHROMA_DIR,
-        collection_name=COLLECTION_NAME,
-        embedding_function=embeddings,
-    )
-    return vectorstore
+    return PineconeVectorStore(index=index, embedding=embeddings)
 
 
 def format_docs(docs):
