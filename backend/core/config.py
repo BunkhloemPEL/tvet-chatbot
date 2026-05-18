@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     database_url: str
     pinecone_api_key: str
     pinecone_index: str
+    secret_key: str
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
     chroma_dir: str = str(ROOT_DIR / "chroma_db")
 
     model_config = SettingsConfigDict(env_file=ENV_PATH)
