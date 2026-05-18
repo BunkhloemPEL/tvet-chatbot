@@ -1,6 +1,15 @@
-from sqlalchemy import create_engine, Column, String, Text, DateTime, Integer
+from sqlalchemy import (
+    create_engine,
+    Column,
+    String,
+    Text,
+    DateTime,
+    Integer,
+    ForeignKey,
+)
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy import text
 from datetime import datetime
 from core.config import settings
 
@@ -9,20 +18,42 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    phone = Column(String, unique=True, nullable=False)
+    username = Column(String, unique=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    sessions = relationship("ChatSession", back_populates="user")
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(String, primary_key=True)  # UUID
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String, default="New Conversation")
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User", back_populates="sessions")
+    messages = relationship("Conversation", back_populates="session")
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(String, nullable=False)
+    session_id = Column(String, ForeignKey("chat_sessions.id"), nullable=False)
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
 
+    session = relationship("ChatSession", back_populates="messages")
+
 
 def init_db():
     Base.metadata.create_all(engine)
-    print("✅ Tables created successfully!")
-
-
-if __name__ == "__main__":
-    init_db()
+    print("Tables ready!")
