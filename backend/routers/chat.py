@@ -51,6 +51,21 @@ def list_sessions(
         for s in sessions
     ]
 
+@router.get("/session/{session_id}")
+def get_session_messages(
+    session_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    session = get_session_by_id(db, session_id, current_user.id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found"
+        )
+    history = get_history(db, session_id)
+    return {"session_id": session_id, "messages": history}
+
 
 # @router.post("/")
 # async def chat(request: SessionRequest, db: Session = Depends(get_session)):

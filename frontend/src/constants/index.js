@@ -1,5 +1,6 @@
-export const API_URL = "http://localhost:8000/chat/no-stream";
-export const SESSION_ID = "tvet-user-001";
+export const BASE_URL = "http://localhost:8000";
+export const API_URL = `${BASE_URL}/chat`;
+export const AUTH_URL = `${BASE_URL}/auth`;
 
 export const SUGGESTED_QUESTIONS = [
     "តើមានកម្មវិធី TVET អ្វីខ្លះនៅភ្នំពេញ?",
