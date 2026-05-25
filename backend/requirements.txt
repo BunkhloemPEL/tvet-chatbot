@@ -83,8 +83,8 @@ ormsgpack==1.12.2
 overrides==7.7.0
 packaging==24.2
 pdfminer.six==20251230
-pdfplumber==0.11.9
 pillow==12.2.0
+PyMuPDF==1.27.2.3
 pinecone==7.3.0
 pinecone-client==6.0.0
 pinecone-plugin-assistant==1.8.0
