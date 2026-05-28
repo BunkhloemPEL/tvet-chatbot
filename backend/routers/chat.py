@@ -9,9 +9,17 @@ from crud import (
     create_chat_session,
     get_user_sessions,
     get_session_by_id,
+    get_conversation_state,
+    upsert_conversation_state,
 )
 from services.rag_service import build_chain
 from services.deps import get_current_user
+from services.state_service import (
+    deserialize_state,
+    serialize_state,
+    should_update_conversation_state,
+    update_conversation_state,
+)
 from database import User
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -109,14 +117,32 @@ async def chat_no_stream(
 
     save_message(db, session_id, "user", request.message)
     history = get_history(db, session_id)[:-1]
+    state_record = get_conversation_state(db, session_id)
+    current_state = deserialize_state(state_record.state_json if state_record else None)
+    should_update_state = should_update_conversation_state(
+        latest_message=request.message,
+        history=history,
+        has_existing_state=state_record is not None,
+    )
+    if should_update_state:
+        updated_state = update_conversation_state(
+            history=history,
+            latest_message=request.message,
+            current_state=current_state,
+        )
+    else:
+        updated_state = current_state
 
     full_response = chain.invoke(
         {
             "question": request.message,
             "history": history,
+            "state": updated_state,
         }
     )
 
-    save_message(db, request.session_id, "assistant", full_response)
+    save_message(db, session_id, "assistant", full_response)
+    if should_update_state or state_record is None:
+        upsert_conversation_state(db, session_id, serialize_state(updated_state))
 
     return {"response": full_response}

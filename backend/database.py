@@ -40,6 +40,7 @@ class ChatSession(Base):
 
     user = relationship("User", back_populates="sessions")
     messages = relationship("Conversation", back_populates="session")
+    state = relationship("ConversationState", back_populates="session", uselist=False)
 
 
 class Conversation(Base):
@@ -52,6 +53,17 @@ class Conversation(Base):
     created_at = Column(DateTime, default=datetime.now)
 
     session = relationship("ChatSession", back_populates="messages")
+
+
+class ConversationState(Base):
+    __tablename__ = "conversation_states"
+
+    session_id = Column(String, ForeignKey("chat_sessions.id"), primary_key=True)
+    state_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    session = relationship("ChatSession", back_populates="state")
 
 
 def init_db():

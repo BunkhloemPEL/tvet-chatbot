@@ -12,9 +12,21 @@ from langchain_core.prompts import (
 )
 from core.config import settings
 from services.embedding_service import get_embeddings
+from services.state_service import format_state_for_prompt
 
 CHROMA_DIR = settings.chroma_dir
 COLLECTION_NAME = settings.vector_collection_name
+
+QUERY_REWRITE_PROMPT = """
+Rewrite the user's latest message into one standalone semantic search query for a
+Cambodia TVET vector database.
+
+Use the conversation history and structured state only to resolve references,
+follow-ups, and missing context. Do not answer the user. Do not add facts that are
+not supported by the history or state.
+
+Return only the rewritten search query. Keep it concise.
+"""
 
 # SYSTEM_PROMPT = """អ្នកគឺជាជំនួយការ TVET របស់កម្ពុជា — មិត្តរួមការងារដ៏ស្និទ្ធស្នាល ដែលជួយនិស្សិតស្វែងរកកម្មវិធីបណ្តុះបណ្តាល។
 
@@ -44,19 +56,29 @@ SYSTEM_PROMPT = """
 You are a TVET advisor for Cambodia. Your primary users are school counselors helping Grade 9 students at risk of dropping out. You may also speak with parents and students.
 
 ## Tone
+You are a helpful and cheerful human consultant but still remain professional with the information you provide
 - Counselor: professional, efficient, collaborative. Use bullet points for lists.
 - Parent: respectful, simple, evidence-focused. Explain jargon.
 - Student: warm, hopeful, strength-focused. Never condescending.
 - Never greet more than once. Never end with repetitive prompts. Keep responses concise.
+- If conversation history is not empty, do not greet again, reintroduce yourself, or apologize unless there was a clear mistake.
 
 ## Language
 - Match the user's language (Khmer or English). Use natural, conversational Khmer.
 - Simplify vocabulary for parents and students.
 
+## Answer First
+- Always answer the user's direct question first using the retrieved context.
+- Ask clarifying questions only after giving a useful initial answer.
+- Ask at most one follow-up question at the end, and only when it clearly improves the next answer.
+- Do not ask for location, interests, strengths, finances, or logistics unless the user asks for program recommendations, matching, or comparison.
+- If the user refuses to share profile information, respect that choice and continue with general guidance. Do not ask for the same profile details again.
+- If the user asks about applying, admission, enrollment, requirements, documents, or "what do I need", first give a general checklist or steps, then mention that exact requirements may vary by institute or program.
+
 ## Mode Detection
 Before responding, detect the user's mode:
 - Exploration: list programs, offer to filter further.
-- Diagnosis: ask clarifying questions to build a student profile.
+- Diagnosis: answer the immediate concern first, then ask one targeted question only if needed.
 - Matching: present ranked options with reasoning and match quality.
 - Comparison: side-by-side. Highlight trade-offs.
 - Persuasion: provide evidence, outcomes, stories. Be honest about uncertainty.
@@ -64,7 +86,7 @@ Before responding, detect the user's mode:
 - Crisis: acknowledge difficulty, offer alternatives, prioritize human contacts.
 
 ## Student Profile (for matching)
-Gather conversationally: location, academic level, interests/strengths, financial constraints, time horizon, logistical constraints, gender/cultural considerations.
+Gather profile details only when they are needed for matching or recommendations. Gather conversationally and gradually: location, academic level, interests/strengths, financial constraints, time horizon, logistical constraints, gender/cultural considerations.
 
 ## Data Honesty
 - NEVER invent program details, costs, or outcomes.
@@ -138,6 +160,33 @@ def format_history(history: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def rewrite_retrieval_query(inputs: dict, query_rewriter: ChatOpenAI) -> str:
+    question = inputs["question"]
+    history = format_history(inputs.get("history", []))
+    state = format_state_for_prompt(inputs.get("state", {}))
+
+    user_prompt = f"""Conversation history:
+{history}
+
+Structured conversation state:
+{state}
+
+Latest user message:
+{question}"""
+
+    try:
+        response = query_rewriter.invoke(
+            [
+                ("system", QUERY_REWRITE_PROMPT),
+                ("human", user_prompt),
+            ]
+        )
+        rewritten = response.content.strip().strip('"')
+        return rewritten[:500] or question
+    except Exception:
+        return question
+
+
 def build_chain():
     vectorstore = load_vectorstore()
     retriever = vectorstore.as_retriever(search_kwargs={"k": settings.retriever_k})
@@ -146,6 +195,13 @@ def build_chain():
         model="google/gemini-2.0-flash-lite-001",
         openai_api_key=settings.openrouter_api_key,
         openai_api_base="https://openrouter.ai/api/v1",
+        temperature=0.7,
+    )
+    query_rewriter = ChatOpenAI(
+        model="google/gemini-2.0-flash-lite-001",
+        openai_api_key=settings.openrouter_api_key,
+        openai_api_base="https://openrouter.ai/api/v1",
+        temperature=0,
     )
 
     prompt = ChatPromptTemplate.from_messages(
@@ -154,6 +210,9 @@ def build_chain():
             HumanMessagePromptTemplate.from_template(
                 """[ប្រវត្តិសន្ទនា / Conversation history:]
 {history}
+
+[ស្ថានភាពសន្ទនា / Conversation state:]
+{state}
 
 [ព័ត៌មានដែលបានស្រង់ / Retrieved context:]
 {context}
@@ -166,11 +225,16 @@ def build_chain():
 
     chain = (
         {
-            "context": RunnableLambda(lambda x: x["question"])
+            "context": RunnableLambda(
+                lambda x: rewrite_retrieval_query(x, query_rewriter)
+            )
             | retriever
             | format_docs,
             "question": RunnableLambda(lambda x: x["question"]),
             "history": RunnableLambda(lambda x: format_history(x.get("history", []))),
+            "state": RunnableLambda(
+                lambda x: format_state_for_prompt(x.get("state", {}))
+            ),
         }
         | prompt
         | llm

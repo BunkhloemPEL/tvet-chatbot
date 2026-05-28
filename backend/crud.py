@@ -1,5 +1,7 @@
 from sqlalchemy.orm import Session
-from database import Conversation, SessionLocal, User, ChatSession
+from datetime import datetime
+
+from database import Conversation, ConversationState, SessionLocal, User, ChatSession
 import uuid
 
 
@@ -82,3 +84,27 @@ def get_history(db: Session, session_id: str) -> list:
         .all()
     )
     return [{"role": m.role, "content": m.content} for m in messages]
+
+
+def get_conversation_state(db: Session, session_id: str) -> ConversationState:
+    return (
+        db.query(ConversationState)
+        .filter(ConversationState.session_id == session_id)
+        .first()
+    )
+
+
+def upsert_conversation_state(
+    db: Session, session_id: str, state_json: str
+) -> ConversationState:
+    state = get_conversation_state(db, session_id)
+    if state:
+        state.state_json = state_json
+        state.updated_at = datetime.now()
+    else:
+        state = ConversationState(session_id=session_id, state_json=state_json)
+        db.add(state)
+
+    db.commit()
+    db.refresh(state)
+    return state
