@@ -1,6 +1,5 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableLambda
 from langchain_chroma import Chroma
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
@@ -13,6 +12,14 @@ from langchain_core.prompts import (
 from core.config import settings
 from services.embedding_service import get_embeddings
 from services.state_service import format_state_for_prompt
+from services.web_search_service import (
+    build_bilingual_queries,
+    dedupe_and_rank_results,
+    evaluate_web_evidence,
+    format_web_context_for_prompt,
+    run_tavily_searches,
+    should_search_web,
+)
 
 CHROMA_DIR = settings.chroma_dir
 COLLECTION_NAME = settings.vector_collection_name
@@ -61,7 +68,8 @@ You are a helpful and cheerful human consultant but still remain professional wi
 - Parent: respectful, simple, evidence-focused. Explain jargon.
 - Student: warm, hopeful, strength-focused. Never condescending.
 - Never greet more than once. Never end with repetitive prompts. Keep responses concise.
-- If conversation history is not empty, do not greet again, reintroduce yourself, or apologize unless there was a clear mistake.
+- If conversation history is not empty, never start with "Hello", "Hi", "សួស្តី", or any greeting. Continue directly.
+- Do not end with generic prompts like "How else can I help?" or "តើខ្ញុំអាចជួយអ្វីបានទៀត?"
 
 ## Language
 - Match the user's language (Khmer or English). Use natural, conversational Khmer.
@@ -88,9 +96,23 @@ Before responding, detect the user's mode:
 ## Student Profile (for matching)
 Gather profile details only when they are needed for matching or recommendations. Gather conversationally and gradually: location, academic level, interests/strengths, financial constraints, time horizon, logistical constraints, gender/cultural considerations.
 
+## Career And Job Outcome Boundary
+- If the user asks about career opportunity, job market, or guaranteed employment, do not act as a career advisor and do not predict labor-market outcomes.
+- Never say a program guarantees a job.
+- Explain that you can help narrow TVET choices using verified program information, scholarships, requirements, location, interests, financial constraints, and study logistics.
+- If the user is unsure which program to choose, guide them back to TVET selection criteria and ask at most one simple preference question.
+
 ## Data Honesty
 - NEVER invent program details, costs, or outcomes.
-- Always distinguish database facts from estimates from web search.
+- Do not use outside knowledge, general world knowledge, or unsupported benchmarks for specific schools.
+- Always distinguish official TVET database facts from web search evidence.
+- Treat web search as unverified evidence unless the evidence assessment says it directly supports the answer.
+- When using web evidence, cite the relevant source URLs in the answer.
+- Include web source URLs only when web evidence is used.
+- If web evidence response_mode is weak_signal_answer, describe it as previous or related evidence, not confirmed current information.
+- If web evidence response_mode is not_found_contact_school, say you could not verify the requested details and recommend direct contact.
+- If web evidence lists missing_fields, do not answer those fields using general benchmarks, unrelated sources, or guesses. Say they could not be verified.
+- For school-specific duration, schedule, tuition, next enrollment, or scholarship questions, only answer with details directly supported by official context or web evidence.
 - When cost is missing, provide benchmarks if available, then give institute contact.
 - When nothing is found, say so and suggest direct contact.
 - Never guarantee job outcomes. Use cautious, evidence-based language.
@@ -187,6 +209,111 @@ Latest user message:
         return question
 
 
+class RagPipeline:
+    def __init__(
+        self,
+        *,
+        retriever,
+        llm: ChatOpenAI,
+        query_rewriter: ChatOpenAI,
+        prompt: ChatPromptTemplate,
+    ):
+        self.retriever = retriever
+        self.query_rewriter = query_rewriter
+        self.answer_chain = prompt | llm | StrOutputParser()
+
+    def invoke(self, inputs: dict) -> str:
+        question = inputs["question"]
+        history = inputs.get("history", [])
+        state = inputs.get("state", {})
+
+        retrieval_query = rewrite_retrieval_query(inputs, self.query_rewriter)
+        docs = self.retriever.invoke(retrieval_query)
+        retrieved_context = format_docs(docs)
+
+        web_context, web_evidence, web_assessment = self.build_web_context(
+            question, history, state, retrieved_context
+        )
+
+        if (
+            web_assessment
+            and web_assessment.response_mode != "verified_answer"
+            and web_assessment.missing_fields
+        ):
+            return compose_guarded_web_answer(question, web_evidence, web_assessment)
+
+        return self.answer_chain.invoke(
+            {
+                "history": format_history(history),
+                "state": format_state_for_prompt(state),
+                "context": retrieved_context,
+                "web_context": web_context,
+                "question": question,
+            }
+        )
+
+    def build_web_context(
+        self, question: str, history: list[dict], state: dict, retrieved_context: str
+    ) -> tuple[str, list, object | None]:
+        if not should_search_web(question, state, retrieved_context):
+            return (
+                "Web search was not used for this question. "
+                "Answer from the official TVET database context only.",
+                [],
+                None,
+            )
+
+        web_query_context = f"{format_history(history)}\n\n{retrieved_context}"
+        queries = build_bilingual_queries(question, state, web_query_context)
+        search_results = run_tavily_searches(queries)
+        evidence = dedupe_and_rank_results(search_results)
+        assessment = evaluate_web_evidence(question, evidence)
+        return format_web_context_for_prompt(evidence, assessment), evidence, assessment
+
+
+def compose_guarded_web_answer(question: str, evidence: list, assessment) -> str:
+    is_khmer = any("\u1780" <= char <= "\u17ff" for char in question)
+    best = evidence[0] if evidence else None
+
+    if is_khmer:
+        lines = []
+        if assessment.missing_fields:
+            lines.append(
+                "ខ្ញុំមិនអាចផ្ទៀងផ្ទាត់ព័ត៌មាននេះបានពេញលេញពីទិន្នន័យផ្លូវការ និងលទ្ធផលស្វែងរកគេហទំព័រទេ។"
+            )
+            lines.append(
+                "ព័ត៌មានដែលមិនទាន់អាចបញ្ជាក់បាន៖ "
+                + ", ".join(assessment.missing_fields)
+            )
+
+        if best:
+            lines.append(
+                "ខ្ញុំរកឃើញតែភស្តុតាងពាក់ព័ន្ធមួយថា សាលានេះធ្លាប់មានព័ត៌មានអំពីអាហារូបករណ៍/ជំនួយសិក្សា ប៉ុន្តែមិនអាចបញ្ជាក់ថាវាកំពុងបើកសម្រាប់វគ្គបច្ចុប្បន្នបានទេ។"
+            )
+            lines.append(f"ប្រភព៖ {best.url}")
+
+        lines.append("សម្រាប់ព័ត៌មានច្បាស់លាស់បំផុត សូមទាក់ទងវិទ្យាស្ថានដោយផ្ទាល់។")
+        return "\n\n".join(lines)
+
+    lines = []
+    if assessment.missing_fields:
+        lines.append(
+            "I could not fully verify these details from the official TVET database "
+            "or the web evidence."
+        )
+        lines.append("Not verified: " + ", ".join(assessment.missing_fields) + ".")
+
+    if best:
+        lines.append(
+            "I found related evidence that this institute has had scholarship/support "
+            "information before, but I cannot confirm that it is currently open."
+        )
+        lines.append(f"Source: {best.url}")
+
+    lines.append("For the safest answer, contact the institute directly to confirm.")
+    return "\n\n".join(lines)
+
+
 def build_chain():
     vectorstore = load_vectorstore()
     retriever = vectorstore.as_retriever(search_kwargs={"k": settings.retriever_k})
@@ -195,7 +322,7 @@ def build_chain():
         model="google/gemini-2.0-flash-lite-001",
         openai_api_key=settings.openrouter_api_key,
         openai_api_base="https://openrouter.ai/api/v1",
-        temperature=0.7,
+        temperature=0.2,
     )
     query_rewriter = ChatOpenAI(
         model="google/gemini-2.0-flash-lite-001",
@@ -217,28 +344,26 @@ def build_chain():
 [ព័ត៌មានដែលបានស្រង់ / Retrieved context:]
 {context}
 
+[ភស្តុតាងពីគេហទំព័រ / Web evidence:]
+{web_context}
+
+[ច្បាប់សំខាន់ / Critical answer rule:]
+For every requested field, answer only if it is explicitly supported by the
+official context or web evidence above. If duration, schedule, enrollment,
+tuition, or scholarship is not explicitly supported, say it could not be
+verified and recommend contacting the institute. Do not fill gaps with general
+knowledge. Do not cite or mention any URL that does not appear in the Web
+evidence section.
+
 [សំណួររបស់និស្សិត / Student question:]
 {question}"""
             ),
         ]
     )
 
-    chain = (
-        {
-            "context": RunnableLambda(
-                lambda x: rewrite_retrieval_query(x, query_rewriter)
-            )
-            | retriever
-            | format_docs,
-            "question": RunnableLambda(lambda x: x["question"]),
-            "history": RunnableLambda(lambda x: format_history(x.get("history", []))),
-            "state": RunnableLambda(
-                lambda x: format_state_for_prompt(x.get("state", {}))
-            ),
-        }
-        | prompt
-        | llm
-        | StrOutputParser()
+    return RagPipeline(
+        retriever=retriever,
+        llm=llm,
+        query_rewriter=query_rewriter,
+        prompt=prompt,
     )
-
-    return chain

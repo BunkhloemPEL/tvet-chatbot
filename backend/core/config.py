@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     embedding_use_e5_prefixes: bool = True
     embedding_normalize: bool = True
     retriever_k: int = 5
+    tavily_api_key: str | None = None
+    enable_web_search: bool = False
+    tavily_max_results: int = 5
+    tavily_search_depth: str = "basic"
+    tavily_timeout_seconds: int = 15
 
     model_config = SettingsConfigDict(env_file=ENV_PATH)
 
