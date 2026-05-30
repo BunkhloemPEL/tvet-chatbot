@@ -67,6 +67,26 @@ def get_session_by_id(db: Session, session_id: str, user_id: int) -> ChatSession
     )
 
 
+def update_chat_session_title(
+    db: Session, session: ChatSession, title: str
+) -> ChatSession:
+    session.title = title
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def delete_chat_session(db: Session, session: ChatSession) -> None:
+    db.query(ConversationState).filter(
+        ConversationState.session_id == session.id
+    ).delete(synchronize_session=False)
+    db.query(Conversation).filter(
+        Conversation.session_id == session.id
+    ).delete(synchronize_session=False)
+    db.delete(session)
+    db.commit()
+
+
 # ── Message operations ───────────────────────────────────
 
 

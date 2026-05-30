@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./styles/global.css";
 
 import { useAuth } from "./hooks/useAuth";
@@ -20,19 +20,46 @@ export default function App() {
         isLoading,
         sessions,
         activeSessionId,
+        deletingSessionId,
         setInput,
         sendMessage,
         startNewSession,
         switchSession,
+        deleteSession,
     } = useChat(token);
 
     const bottomRef = useRef(null);
     const isEmpty = messages.length === 0;
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [theme, setTheme] = useState(() => {
+        const savedTheme = window.localStorage.getItem("tvet-theme");
+        if (savedTheme === "dark" || savedTheme === "light") return savedTheme;
+
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    });
+
+    const isDark = theme === "dark";
 
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        window.localStorage.setItem("tvet-theme", theme);
+    }, [theme]);
+
+    useEffect(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, [messages, isLoading]);
+
+    useEffect(() => {
+        if (!sidebarOpen) return;
+
+        const handleKeyDown = (event) => {
+            if (event.key === "Escape") setSidebarOpen(false);
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [sidebarOpen]);
 
     if (!token) {
         return (
@@ -41,6 +68,8 @@ export default function App() {
                 onRegister={register}
                 isLoading={authLoading}
                 error={authError}
+                theme={theme}
+                onToggleTheme={() => setTheme(isDark ? "light" : "dark")}
             />
         );
     }
@@ -55,219 +84,104 @@ export default function App() {
         setSidebarOpen(false);
     };
 
+    const handleDeleteSession = async (sessionId) => {
+        await deleteSession(sessionId);
+    };
+
     return (
-        <div style={{
-            display: "flex",
-            height: "100vh",
-            background: "#f8fafc",
-            overflow: "hidden",
-            position: "relative",
-        }}>
+        <div className="app-shell">
+            <button
+                className={`sidebar-scrim ${sidebarOpen ? "is-visible" : ""}`}
+                aria-label="បិទម៉ឺនុយ"
+                onClick={() => setSidebarOpen(false)}
+            />
 
-            {/* Dark overlay — shown when sidebar is open */}
-            {sidebarOpen && (
-                <div
-                    onClick={() => setSidebarOpen(false)}
-                    style={{
-                        position: "fixed",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.5)",
-                        zIndex: 10,
-                        animation: "fadeIn 0.2s ease",
-                    }}
-                />
-            )}
-
-            {/* Sidebar — slides in from left */}
             <Sidebar
                 isOpen={sidebarOpen}
                 sessions={sessions}
                 activeSessionId={activeSessionId}
                 username={user?.username}
+                isLoading={isLoading}
+                deletingSessionId={deletingSessionId}
                 onNewSession={handleNewSession}
                 onSelectSession={handleSelectSession}
+                onDeleteSession={handleDeleteSession}
                 onLogout={logout}
                 onClose={() => setSidebarOpen(false)}
             />
 
-            {/* Chat area */}
-            <div style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-            }}>
-
-                {/* Header */}
-                <div style={{
-                    padding: "16px 20px",
-                    background: "#ffffff",
-                    borderBottom: "1px solid #f1f5f9",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                }}>
-                    {/* Hamburger button */}
+            <main className="chat-workspace">
+                <header className="chat-topbar">
                     <button
+                        className="icon-button menu-button"
+                        type="button"
+                        aria-label="បើកម៉ឺនុយ"
                         onClick={() => setSidebarOpen(true)}
-                        style={{
-                            background: "transparent",
-                            border: "none",
-                            cursor: "pointer",
-                            padding: 6,
-                            borderRadius: 8,
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 5,
-                            flexShrink: 0,
-                        }}
                     >
-                        {[0, 1, 2].map(i => (
-                            <div key={i} style={{
-                                width: 20,
-                                height: 2,
-                                background: "#64748b",
-                                borderRadius: 2,
-                            }} />
-                        ))}
+                        <span />
+                        <span />
+                        <span />
                     </button>
 
-                    <div style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 10,
-                        background: "linear-gradient(135deg, #1a56db, #0e9f6e)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 16,
-                        boxShadow: "0 2px 8px rgba(26,86,219,0.25)",
-                    }}>
-                        🎓
-                    </div>
-                    <div>
-                        <div style={{
-                            fontSize: 15,
-                            fontWeight: 600,
-                            color: "#1e293b",
-                            fontFamily: "'Noto Sans Khmer', sans-serif",
-                            lineHeight: 1.3,
-                        }}>
-                            ជំនួយការ TVET
-                        </div>
-                        <div style={{
-                            fontSize: 12,
-                            color: "#94a3b8",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 5,
-                            marginTop: 1,
-                        }}>
-                            <div style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: "50%",
-                                background: "#0e9f6e",
-                            }} />
+                    <div className="brand-mark" aria-hidden="true">TV</div>
+
+                    <div className="topbar-copy">
+                        <strong>ជំនួយការ TVET</strong>
+                        <span>
+                            <i aria-hidden="true" />
                             អនឡាញ
-                        </div>
+                        </span>
                     </div>
-                </div>
 
-                {/* Messages */}
-                <div style={{
-                    flex: 1,
-                    overflowY: "auto",
-                    padding: "20px 20px 8px",
-                }}>
-                    {isEmpty && (
-                        <div style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            minHeight: "60%",
-                            gap: 24,
-                            animation: "fadeUp 0.5s ease",
-                        }}>
-                            <div style={{ textAlign: "center" }}>
-                                <div style={{
-                                    fontSize: 48,
-                                    marginBottom: 14,
-                                    filter: "drop-shadow(0 4px 12px rgba(26,86,219,0.2))",
-                                }}>
-                                    🎓
-                                </div>
-                                <h1 style={{
-                                    fontSize: 22,
-                                    fontWeight: 600,
-                                    color: "#1e293b",
-                                    fontFamily: "'Noto Sans Khmer', sans-serif",
-                                    marginBottom: 8,
-                                    lineHeight: 1.5,
-                                }}>
-                                    សួស្ដី {user?.username}! ខ្ញុំជាជំនួយការ TVET
-                                </h1>
-                                <p style={{
-                                    fontSize: 14,
-                                    color: "#64748b",
-                                    fontFamily: "'Noto Sans Khmer', sans-serif",
-                                    lineHeight: 1.8,
-                                    maxWidth: 380,
-                                }}>
-                                    ខ្ញុំអាចជួយអ្នករកព័ត៌មានអំពីកម្មវិធីបណ្តុះបណ្តាលបច្ចេកទេស និងវិជ្ជាជីវៈ (TVET) នៅកម្ពុជា
+                    <button
+                        className="theme-toggle"
+                        type="button"
+                        aria-label={isDark ? "ប្តូរទៅ Light mode" : "ប្តូរទៅ Dark mode"}
+                        aria-pressed={isDark}
+                        onClick={() => setTheme(isDark ? "light" : "dark")}
+                    >
+                        <span aria-hidden="true" />
+                        {isDark ? "Light" : "Dark"}
+                    </button>
+                </header>
+
+                <section className="message-scroll" aria-label="Conversation">
+                    <div className="conversation-column">
+                        {isEmpty && (
+                            <div className="empty-state">
+                                <div className="empty-kicker">TVET Cambodia</div>
+                                <h1>សួស្ដី {user?.username || ""}</h1>
+                                <p>
+                                    ខ្ញុំអាចជួយរកព័ត៌មានអំពីកម្មវិធីបណ្តុះបណ្តាលបច្ចេកទេស
+                                    និងវិជ្ជាជីវៈ សាលា លក្ខខណ្ឌចូលរៀន និងការគាំទ្រហិរញ្ញវត្ថុដែលអាចផ្ទៀងផ្ទាត់បាន។
                                 </p>
+                                <SuggestedQuestions
+                                    questions={SUGGESTED_QUESTIONS}
+                                    onSelect={sendMessage}
+                                />
                             </div>
-                            <SuggestedQuestions
-                                questions={SUGGESTED_QUESTIONS}
-                                onSelect={sendMessage}
+                        )}
+
+                        {messages.map((msg, i) => (
+                            <Message
+                                key={`${msg.role}-${i}`}
+                                role={msg.role}
+                                content={msg.content}
                             />
-                        </div>
-                    )}
+                        ))}
 
-                    {messages.map((msg, i) => (
-                        <Message
-                            key={i}
-                            role={msg.role}
-                            content={msg.content}
-                        />
-                    ))}
-
-                    {isLoading && (
-                        <div style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            gap: 10,
-                            marginBottom: 6,
-                        }}>
-                            <div style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: "50%",
-                                background: "linear-gradient(135deg, #1a56db, #0e9f6e)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                flexShrink: 0,
-                                fontSize: 14,
-                            }}>
-                                🎓
+                        {isLoading && (
+                            <div className="message-row assistant-row">
+                                <div className="assistant-avatar" aria-hidden="true">TV</div>
+                                <div className="assistant-typing" aria-label="Assistant is typing">
+                                    <TypingDots />
+                                </div>
                             </div>
-                            <div style={{
-                                background: "#ffffff",
-                                borderRadius: "4px 18px 18px 18px",
-                                padding: "12px 16px",
-                                border: "1px solid #f1f5f9",
-                                boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                            }}>
-                                <TypingDots />
-                            </div>
-                        </div>
-                    )}
+                        )}
 
-                    <div ref={bottomRef} style={{ height: 8 }} />
-                </div>
+                        <div ref={bottomRef} className="scroll-anchor" />
+                    </div>
+                </section>
 
                 <ChatInput
                     input={input}
@@ -277,7 +191,7 @@ export default function App() {
                     suggestions={SUGGESTED_QUESTIONS.slice(0, 3)}
                     showChips={!isEmpty && messages.length < 4}
                 />
-            </div>
+            </main>
         </div>
     );
 }

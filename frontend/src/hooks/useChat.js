@@ -7,6 +7,7 @@ export function useChat(token) {
     const [isLoading, setIsLoading] = useState(false);
     const [sessions, setSessions] = useState([]);
     const [activeSessionId, setActiveSessionId] = useState(null);
+    const [deletingSessionId, setDeletingSessionId] = useState(null);
 
     // const fetchSessions = useCallback(async () => {
     //     try {
@@ -69,6 +70,37 @@ export function useChat(token) {
         }
     }, [token, activeSessionId]);
 
+    const deleteSession = useCallback(async (sessionId) => {
+        if (!sessionId || deletingSessionId) return false;
+        if (sessionId === activeSessionId && isLoading) return false;
+
+        setDeletingSessionId(sessionId);
+
+        try {
+            const response = await fetch(`${API_URL}/session/${sessionId}`, {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (!response.ok) throw new Error("Failed to delete session");
+
+            setSessions((prev) => prev.filter((session) => session.session_id !== sessionId));
+
+            if (sessionId === activeSessionId) {
+                setActiveSessionId(null);
+                setMessages([]);
+                setInput("");
+            }
+
+            return true;
+        } catch {
+            console.error("Failed to delete session");
+            return false;
+        } finally {
+            setDeletingSessionId(null);
+        }
+    }, [token, activeSessionId, deletingSessionId, isLoading]);
+
     const sendMessage = useCallback(async (text) => {
         const userMessage = (text || input).trim();
         if (!userMessage || isLoading) return;
@@ -110,6 +142,14 @@ export function useChat(token) {
 
             const data = await response.json();
 
+            if (data.session_id && data.title) {
+                setSessions((prev) => prev.map((session) => (
+                    session.session_id === data.session_id
+                        ? { ...session, title: data.title }
+                        : session
+                )));
+            }
+
             setMessages((prev) => [
                 ...prev,
                 { role: "assistant", content: data.response },
@@ -134,9 +174,11 @@ export function useChat(token) {
         isLoading,
         sessions,
         activeSessionId,
+        deletingSessionId,
         setInput,
         sendMessage,
         startNewSession,
         switchSession,
+        deleteSession,
     };
 }

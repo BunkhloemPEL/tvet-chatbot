@@ -7,8 +7,10 @@ from crud import (
     save_message,
     get_history,
     create_chat_session,
+    delete_chat_session,
     get_user_sessions,
     get_session_by_id,
+    update_chat_session_title,
     get_conversation_state,
     upsert_conversation_state,
 )
@@ -20,6 +22,7 @@ from services.state_service import (
     should_update_conversation_state,
     update_conversation_state,
 )
+from services.title_service import DEFAULT_SESSION_TITLE, title_from_message
 from database import User
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -75,6 +78,23 @@ def get_session_messages(
     return {"session_id": session_id, "messages": history}
 
 
+@router.delete("/session/{session_id}")
+def delete_session(
+    session_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    session = get_session_by_id(db, session_id, current_user.id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found"
+        )
+
+    delete_chat_session(db, session)
+    return {"deleted": True, "session_id": session_id}
+
+
 # @router.post("/")
 # async def chat(request: SessionRequest, db: Session = Depends(get_session)):
 #     save_message(db, request.session_id, "user", request.message)
@@ -116,6 +136,15 @@ async def chat_no_stream(
         session_id = request.session_id
 
     save_message(db, session_id, "user", request.message)
+    session_title = session.title
+    if session.title == DEFAULT_SESSION_TITLE:
+        session = update_chat_session_title(
+            db,
+            session,
+            title_from_message(request.message),
+        )
+        session_title = session.title
+
     history = get_history(db, session_id)[:-1]
     state_record = get_conversation_state(db, session_id)
     current_state = deserialize_state(state_record.state_json if state_record else None)
@@ -145,4 +174,8 @@ async def chat_no_stream(
     if should_update_state or state_record is None:
         upsert_conversation_state(db, session_id, serialize_state(updated_state))
 
-    return {"response": full_response}
+    return {
+        "response": full_response,
+        "session_id": session_id,
+        "title": session_title,
+    }
